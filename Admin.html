@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — Infamous AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="header"></div>
+
+  <div class="admin-wrap">
+    <h1 style="margin:0 0 4px">Admin Panel</h1>
+    <p class="muted" style="margin-bottom:24px">Restricted to authorized admins only.</p>
+
+    <div id="loading" class="muted">Checking access…</div>
+
+    <div id="panel" style="display:none">
+      <div class="tabs">
+        <button class="tab active" data-tab="stats">Stats</button>
+        <button class="tab" data-tab="users">Users</button>
+        <button class="tab" data-tab="chats">Chats</button>
+        <button class="tab" data-tab="ann">Announcements</button>
+      </div>
+
+      <section data-pane="stats">
+        <div class="stat-grid" id="stat-grid"></div>
+      </section>
+
+      <section data-pane="users" hidden>
+        <div class="field"><input id="search" placeholder="Search by email…" /></div>
+        <table>
+          <thead><tr><th>Email</th><th>Plan</th><th>Today chat</th><th>Coding days</th><th>Action</th></tr></thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </section>
+
+      <section data-pane="chats" hidden>
+        <div class="grid" style="grid-template-columns: 320px 1fr; gap:16px;">
+          <div>
+            <h3 style="margin-top:0">Recent conversations</h3>
+            <div id="conv-list" style="max-height:70vh;overflow-y:auto"></div>
+          </div>
+          <div>
+            <h3 style="margin-top:0">Messages</h3>
+            <div id="conv-msgs" class="muted">Select a conversation.</div>
+          </div>
+        </div>
+      </section>
+
+      <section data-pane="ann" hidden>
+        <form id="ann-form" style="max-width:560px">
+          <div class="field"><label>Title</label><input id="ann-title" required /></div>
+          <div class="field"><label>Body</label><textarea id="ann-body" rows="3" required></textarea></div>
+          <button class="btn btn-primary" type="submit">Post announcement</button>
+        </form>
+        <h3 style="margin-top:24px">Existing</h3>
+        <div id="ann-list"></div>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+  (async () => {
+    renderHeader("#header");
+    const session = await requireAuth();
+    if (!session) return;
+
+    const { data: roleRow } = await sb().from("user_roles")
+      .select("role").eq("user_id", session.user.id).eq("role", "admin").maybeSingle();
+
+    if (!roleRow) {
+      document.getElementById("loading").innerHTML =
+        "🚫 You are not an admin. <a href='chat.html'>Back to chat</a>";
+      return;
+    }
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("panel").style.display = "";
+
+    // Tabs
+    document.querySelectorAll(".tab").forEach(t => {
+      t.onclick = () => {
+        document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+        t.classList.add("active");
+        document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
+      };
+    });
+
+    // ---- Stats ----
+    async function loadStats() {
+      const [u, c, m, a] = await Promise.all([
+        sb().from("profiles").select("*", {count:"exact",head:true}),
+        sb().from("conversations").select("*", {count:"exact",head:true}),
+        sb().from("messages").select("*", {count:"exact",head:true}),
+        sb().from("announcements").select("*", {count:"exact",head:true}),
+      ]);
+      document.getElementById("stat-grid").innerHTML = `
+        <div class="stat"><div class="label">Users</div><div class="value">${u.count ?? 0}</div></div>
+        <div class="stat"><div class="label">Conversations</div><div class="value">${c.count ?? 0}</div></div>
+        <div class="stat"><div class="label">Messages</div><div class="value">${m.count ?? 0}</div></div>
+        <div class="stat"><div class="label">Announcements</div><div class="value">${a.count ?? 0}</div></div>`;
+    }
+
+    // ---- Users ----
+    let users = [];
+    async function loadUsers() {
+      const { data: profiles } = await sb().from("profiles")
+        .select("user_id,email,plan").order("created_at", {ascending:false}).limit(500);
+      const { data: usage } = await sb().from("usage_counters")
+        .select("user_id,chat_count,chat_date,coding_days_used");
+      const usageMap = Object.fromEntries((usage||[]).map(u => [u.user_id, u]));
+      const today = new Date().toISOString().slice(0,10);
+      users = (profiles||[]).map(p => {
+        const u = usageMap[p.user_id] || {};
+        const todayCount = u.chat_date === today ? (u.chat_count||0) : 0;
+        return { ...p, todayCount, codingDays: (u.coding_days_used||[]).length };
+      });
+      renderUsers();
+    }
+    function renderUsers() {
+      const q = document.getElementById("search").value.trim().toLowerCase();
+      const filtered = users.filter(u => !q || (u.email||"").toLowerCase().includes(q));
+      const planOpts = PLANS.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+      document.getElementById("users-body").innerHTML = filtered.map(u => `
+        <tr>
+          <td>${escapeHtml(u.email||"—")}</td>
+          <td>
+            <select data-user="${u.user_id}" class="plan-sel">
+              ${planOpts.replace(`value="${u.plan}"`, `value="${u.plan}" selected`)}
+            </select>
+          </td>
+          <td>${u.todayCount}</td>
+          <td>${u.codingDays}</td>
+          <td><button class="btn" data-save="${u.user_id}">Save</button></td>
+        </tr>`).join("");
+      document.querySelectorAll("[data-save]").forEach(b => {
+        b.onclick = async () => {
+          const id = b.dataset.save;
+          const newPlan = document.querySelector(`.plan-sel[data-user="${id}"]`).value;
+          const { error } = await sb().from("profiles").update({ plan: newPlan }).eq("user_id", id);
+          if (error) toast(error.message, "error");
+          else toast("Plan updated", "success");
+        };
+      });
+    }
+    document.getElementById("search").addEventListener("input", renderUsers);
+
+    // ---- Chats ----
+    async function loadChats() {
+      const { data } = await sb().from("conversations")
+        .select("id,title,mode,user_id,updated_at")
+        .order("updated_at",{ascending:false}).limit(200);
+      document.getElementById("conv-list").innerHTML = (data||[]).map(c => `
+        <div class="history-item" data-id="${c.id}">
+          <span class="title">${escapeHtml(c.title||"Untitled")} <span class="muted" style="font-size:11px">(${c.mode})</span></span>
+        </div>`).join("");
+      document.querySelectorAll("#conv-list [data-id]").forEach(el => {
+        el.onclick = async () => {
+          const { data: msgs } = await sb().from("messages")
+            .select("role,content,created_at").eq("conversation_id", el.dataset.id)
+            .order("created_at",{ascending:true});
+          document.getElementById("conv-msgs").innerHTML = (msgs||[]).map(m => `
+            <div class="msg ${m.role==='user'?'user':''}" style="margin-bottom:12px">
+              <div class="who">${m.role}</div>
+              <div class="bubble">${m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content)}</div>
+            </div>`).join("") || "<div class='muted'>(empty)</div>";
+        };
+      });
+    }
+
+    // ---- Announcements ----
+    async function loadAnn() {
+      const { data } = await sb().from("announcements").select("*").order("created_at",{ascending:false});
+      document.getElementById("ann-list").innerHTML = (data||[]).map(a => `
+        <div class="feature" style="margin-bottom:8px">
+          <h3>${escapeHtml(a.title)}</h3>
+          <p>${escapeHtml(a.body)}</p>
+          <button class="btn btn-danger" data-del="${a.id}" style="margin-top:8px">Delete</button>
+        </div>`).join("") || "<div class='muted'>No announcements yet.</div>";
+      document.querySelectorAll("[data-del]").forEach(b => {
+        b.onclick = async () => {
+          if (!confirm("Delete?")) return;
+          await sb().from("announcements").delete().eq("id", b.dataset.del);
+          loadAnn();
+        };
+      });
+    }
+    document.getElementById("ann-form").onsubmit = async (e) => {
+      e.preventDefault();
+      const title = document.getElementById("ann-title").value.trim();
+      const body = document.getElementById("ann-body").value.trim();
+      const { error } = await sb().from("announcements").insert({ title, body, created_by: session.user.id });
+      if (error) toast(error.message, "error");
+      else { toast("Posted", "success"); e.target.reset(); loadAnn(); }
+    };
+
+    // Load all
+    await Promise.all([loadStats(), loadUsers(), loadChats(), loadAnn()]);
+  })();
+  </script>
+</body>
+</html>
