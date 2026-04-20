@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login — Infamous AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <a href="index.html" class="brand">
+        <div class="logo">i</div>
+        <span>Infamous AI</span><small>v2.0</small>
+      </a>
+      <h1>Welcome back</h1>
+      <p class="sub">Login to continue to Infamous AI.</p>
+      <form id="login-form">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Sign In</button>
+      </form>
+      <p class="center muted" style="margin-top:18px">
+        Don't have an account? <a href="signup.html">Sign up</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    redirectIfAuthed();
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = true; btn.textContent = "Signing in...";
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { error } = await sb().auth.signInWithPassword({ email, password });
+      btn.disabled = false; btn.textContent = "Sign In";
+      if (error) return toast(error.message, "error");
+      toast("Welcome back!", "success");
+      setTimeout(() => location.href = CFG.AFTER_AUTH, 400);
+    });
+  </script>
+</body>
+</html>
