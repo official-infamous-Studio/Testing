@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chat — Infamous AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="chat-app">
+    <aside class="sidebar">
+      <a href="index.html" class="brand">
+        <div class="logo">i</div>
+        <span>Infamous AI</span><small>v2.0</small>
+      </a>
+
+      <div class="mode-list">
+        <button class="mode-btn active" data-mode="chat">
+          💬 <span>Chatting</span>
+        </button>
+        <button class="mode-btn" data-mode="coding">
+          ⚡ <span>Infamous Coding Assistant</span>
+        </button>
+        <button class="mode-btn" disabled style="opacity:.55;cursor:not-allowed">
+          🖼️ <span>Image Assistant</span> <span class="pill">v1.5</span>
+        </button>
+      </div>
+
+      <div class="history-head">
+        <span>History</span>
+        <button class="btn" style="padding:4px 8px;font-size:12px" id="new-chat">+ New</button>
+      </div>
+      <div class="history" id="history"></div>
+
+      <div class="account">
+        <div class="email" id="account-email">…</div>
+        <a id="admin-link" href="admin.html" class="btn btn-block" style="margin-bottom:6px;display:none">🛡️ Admin Panel</a>
+        <button class="btn btn-block" id="logout">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="chat-main">
+      <header class="chat-head">
+        <div class="icon" id="head-icon">💬</div>
+        <div>
+          <h2 id="head-title">Chatting</h2>
+          <p id="head-sub">Conversation only — no code.</p>
+        </div>
+      </header>
+
+      <div id="announce-host"></div>
+
+      <div class="messages" id="messages">
+        <div class="empty-state" id="empty">
+          <div class="big-icon">🤖</div>
+          <h3>How can I help?</h3>
+          <p>Ask anything — math, science, ideas. For code, switch to the Coding Assistant.</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-inner">
+          <textarea id="input" placeholder="Message Infamous AI..." rows="1"></textarea>
+          <button class="send-btn" id="send" title="Send">➤</button>
+        </div>
+        <div class="hint">Press Enter to send · Shift+Enter for newline</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+  (async () => {
+    const session = await requireAuth();
+    if (!session) return;
+
+    const state = { mode: "chat", convId: null, conversations: [], sending: false };
+
+    document.getElementById("account-email").textContent = session.user.email;
+
+    // Admin check
+    const { data: roles } = await sb().from("user_roles").select("role").eq("user_id", session.user.id).eq("role", "admin").maybeSingle();
+    if (roles) document.getElementById("admin-link").style.display = "";
+
+    // Logout
+    document.getElementById("logout").onclick = async () => {
+      await sb().auth.signOut(); location.href = "index.html";
+    };
+
+    // Mode switching
+    document.querySelectorAll(".mode-btn[data-mode]").forEach(b => {
+      b.onclick = () => {
+        if (b.disabled) return;
+        document.querySelectorAll(".mode-btn[data-mode]").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        state.mode = b.dataset.mode;
+        state.convId = null;
+        const isCode = state.mode === "coding";
+        document.getElementById("head-icon").textContent = isCode ? "⚡" : "💬";
+        document.getElementById("head-title").textContent = isCode ? "Infamous Coding Assistant" : "Chatting";
+        document.getElementById("head-sub").textContent = isCode
+          ? "Code, debug, regex, SQL — counts as 1 coding-day used today."
+          : "Conversation only — no code.";
+        loadHistory();
+        renderMessages([]);
+      };
+    });
+
+    // Announcements
+    const { data: anns } = await sb().from("announcements").select("title,body").order("created_at", {ascending:false}).limit(1);
+    if (anns && anns.length) {
+      document.getElementById("announce-host").innerHTML =
+        `<div class="announce"><strong>📣 ${escapeHtml(anns[0].title)}</strong> — ${escapeHtml(anns[0].body)}</div>`;
+    }
+
+    // Load history list for current mode
+    async function loadHistory() {
+      const { data } = await sb().from("conversations")
+        .select("id,title,updated_at")
+        .eq("mode", state.mode)
+        .order("updated_at", {ascending:false})
+        .limit(50);
+      state.conversations = data || [];
+      const el = document.getElementById("history");
+      if (!state.conversations.length) {
+        el.innerHTML = `<div class="history-empty">No conversations yet.</div>`;
+        return;
+      }
+      el.innerHTML = state.conversations.map(c => `
+        <div class="history-item ${c.id === state.convId ? 'active' : ''}" data-id="${c.id}">
+          <span class="title">${escapeHtml(c.title || "Untitled")}</span>
+          <button class="del" data-del="${c.id}" title="Delete">✕</button>
+        </div>`).join("");
+      el.querySelectorAll("[data-id]").forEach(it => {
+        it.onclick = (e) => {
+          if (e.target.closest("[data-del]")) return;
+          openConv(it.dataset.id);
+        };
+      });
+      el.querySelectorAll("[data-del]").forEach(b => {
+        b.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm("Delete this conversation?")) return;
+          const id = b.dataset.del;
+          await sb().from("messages").delete().eq("conversation_id", id);
+          await sb().from("conversations").delete().eq("id", id);
+          if (state.convId === id) { state.convId = null; renderMessages([]); }
+          loadHistory();
+        };
+      });
+    }
+
+    async function openConv(id) {
+      state.convId = id;
+      const { data } = await sb().from("messages")
+        .select("role,content,created_at").eq("conversation_id", id)
+        .order("created_at", {ascending:true});
+      renderMessages(data || []);
+      loadHistory();
+    }
+
+    document.getElementById("new-chat").onclick = () => {
+      state.convId = null;
+      renderMessages([]);
+      loadHistory();
+    };
+
+    function renderMessages(list) {
+      const box = document.getElementById("messages");
+      if (!list.length) {
+        const isCode = state.mode === "coding";
+        box.innerHTML = `<div class="empty-state"><div class="big-icon">${isCode ? "⚡" : "🤖"}</div>
+          <h3>${isCode ? "Ready to code" : "How can I help?"}</h3>
+          <p>${isCode ? "Ask for code, debugging, regex, SQL — anything technical." : "Ask anything — math, science, ideas. For code, switch modes."}</p></div>`;
+        return;
+      }
+      box.innerHTML = list.map(m => `
+        <div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">
+          <div class="who">${m.role === 'user' ? 'You' : 'Infamous AI'}</div>
+          <div class="bubble">${m.role === 'user' ? escapeHtml(m.content).replace(/\n/g,'<br>') : renderMarkdown(m.content)}</div>
+        </div>`).join("");
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // Send
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(200, input.scrollHeight) + "px";
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    sendBtn.onclick = send;
+
+    async function send() {
+      if (state.sending) return;
+      const text = input.value.trim();
+      if (!text) return;
+      state.sending = true;
+      sendBtn.disabled = true;
+      input.value = ""; input.style.height = "auto";
+
+      // Optimistic render
+      const current = Array.from(document.querySelectorAll(".msg")).map(el => ({
+        role: el.classList.contains("user") ? "user" : "assistant",
+        content: el.querySelector(".bubble").innerText,
+      }));
+      const list = [...current, { role: "user", content: text }, { role: "assistant", content: "…thinking" }];
+      renderMessages(list);
+
+      try {
+        const { data: { session: s } } = await sb().auth.getSession();
+        const resp = await fetch(CFG.CHAT_FN_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${s.access_token}`,
+            "apikey": CFG.SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            conversationId: state.convId,
+            mode: state.mode,
+            message: text,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Request failed");
+        state.convId = data.conversationId;
+        // Reload from DB for accuracy
+        await openConv(state.convId);
+      } catch (err) {
+        toast(err.message || "Something went wrong", "error");
+        renderMessages(current);
+      } finally {
+        state.sending = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    // Initial
+    await loadHistory();
+  })();
+  </script>
+</body>
+</html>
