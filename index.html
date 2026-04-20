@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Infamous AI v2.0 — Made by Mikey, for developers</title>
+  <meta name="description" content="Infamous AI v2.0 — fast, focused chat & coding assistant. Made by Mikey, for developers." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="header"></div>
+
+  <section class="hero">
+    <h1>Infamous AI v2.0</h1>
+    <p class="tag">Made by Mikey – for developers, by developers.</p>
+    <div class="ctas">
+      <a href="signup.html" class="btn btn-primary">Get Started Free</a>
+      <a href="#pricing" class="btn">View Plans</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>About Infamous AI</h2>
+    <p class="lead">A focused, no-nonsense AI built for makers. Two purpose-built modes — keep your conversations clean and your code shipping.</p>
+    <div class="grid cols-3">
+      <div class="feature"><h3>💬 Chat Mode</h3><p>Math, science, summaries, ideas, deep questions — anything except code. Stays sharp on conversation.</p></div>
+      <div class="feature"><h3>⚡ Coding Assistant</h3><p>Clean, runnable code. Debugging, regex, SQL, algorithms — fenced & language-tagged.</p></div>
+      <div class="feature"><h3>🖼️ Image Assistant <span class="badge">v1.5</span></h3><p>Coming soon — visual generation built into the same workspace.</p></div>
+      <div class="feature"><h3>🔒 Privacy-first</h3><p>Your API keys, your model details — never leak. Identity & guardrails enforced server-side.</p></div>
+      <div class="feature"><h3>📈 Plan-based quotas</h3><p>Daily chat resets + monthly coding-day windows. Upgrade only when you actually need more.</p></div>
+      <div class="feature"><h3>🛠️ Built by Mikey</h3><p>Solo-built, opinionated, fast. No corporate AI, no telemetry junk.</p></div>
+    </div>
+  </section>
+
+  <section class="section" id="pricing">
+    <h2>Pricing</h2>
+    <p class="lead">Six tiers — pay for what you actually use. Buy via QR; details in each plan.</p>
+    <div class="grid cols-3" id="plans"></div>
+  </section>
+
+  <div id="footer"></div>
+
+  <!-- Pay dialog -->
+  <div id="dialog-host"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    renderHeader("#header");
+    renderFooter("#footer");
+
+    const plansEl = document.getElementById("plans");
+    plansEl.innerHTML = PLANS.map(p => `
+      <div class="plan ${p.popular ? 'popular' : ''}">
+        ${p.popular ? '<span class="badge">Popular</span>' : ''}
+        <h3>${p.name} Plan</h3>
+        <div class="price">${p.price}<span class="muted" style="font-size:14px"> /mo</span></div>
+        <ul>
+          <li>${p.chat} chat messages / day</li>
+          <li>${p.codingDays} coding-assistant days / month</li>
+          <li>Full chat history</li>
+          <li>Email support</li>
+        </ul>
+        <button class="btn btn-primary" data-plan="${p.id}">Buy ${p.name}</button>
+      </div>
+    `).join("");
+
+    // Buy dialog
+    plansEl.addEventListener("click", e => {
+      const btn = e.target.closest("[data-plan]");
+      if (!btn) return;
+      const plan = PLANS.find(x => x.id === btn.dataset.plan);
+      const host = document.getElementById("dialog-host");
+      host.innerHTML = `
+        <div class="dialog-backdrop" id="dlg-back">
+          <div class="dialog" onclick="event.stopPropagation()">
+            <h3>Buy ${plan.name} Plan — ${plan.price}/mo</h3>
+            <p class="muted">Scan the QR code below with your payment app to complete the purchase.</p>
+            <div class="qr">[ Paste your payment QR<br>(replace this box in admin.html / index.html) ]</div>
+            <p class="muted" style="font-size:12px">After payment, email a screenshot to <strong>infamoussmp4@gmail.com</strong> with your account email — your plan will be upgraded within 24h.</p>
+            <button class="btn btn-block" onclick="document.getElementById('dialog-host').innerHTML=''">Close</button>
+          </div>
+        </div>`;
+      document.getElementById("dlg-back").onclick = () => host.innerHTML = "";
+    });
+  </script>
+</body>
+</html>
