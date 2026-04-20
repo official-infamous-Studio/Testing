@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sign Up — Infamous AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <a href="index.html" class="brand">
+        <div class="logo">i</div>
+        <span>Infamous AI</span><small>v2.0</small>
+      </a>
+      <h1>Create your account</h1>
+      <p class="sub">Join Infamous AI v2.0 — free to start.</p>
+      <form id="signup-form">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="new-password" required minlength="6" />
+          <span class="hint">At least 6 characters. Avoid common/leaked passwords.</span>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Sign Up</button>
+      </form>
+      <p class="center muted" style="margin-top:18px">
+        Already have an account? <a href="login.html">Login</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script>
+    redirectIfAuthed();
+    document.getElementById("signup-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = true; btn.textContent = "Creating account...";
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { data, error } = await sb().auth.signUp({
+        email, password,
+        options: { emailRedirectTo: window.location.origin + window.location.pathname.replace(/[^/]*$/, "") + CFG.AFTER_AUTH }
+      });
+      btn.disabled = false; btn.textContent = "Sign Up";
+      if (error) return toast(error.message, "error");
+      if (!data.session) {
+        toast("Account created! Check your email to confirm.", "success");
+      } else {
+        toast("Account created — you're signed in!", "success");
+        setTimeout(() => location.href = CFG.AFTER_AUTH, 400);
+      }
+    });
+  </script>
+</body>
+</html>
